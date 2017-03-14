@@ -1,0 +1,20 @@
+{
+  "extends": "tslint:latest",
+  "rules": {
+    "no-console": false,
+    "ordered-imports": false,
+    "interface-name": false,
+    "no-empty-interface": false,
+    "object-literal-sort-keys": false,
+    "only-arrow-functions": false,
+    "arrow-parens": false,
+    "variable-name": [true, "ban-keywords", "check-format", "allow-leading-underscore", "allow-trailing-underscore", "allow-pascal-case"],
+    "member-access": false,
+    "semicolon": [true, "always"],
+    "trailing-comma": false
+  },
+  "jsRules": {
+  },
+  "rulesDirectory": [
+  ]
+}
