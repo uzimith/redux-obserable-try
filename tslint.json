@@ -11,7 +11,9 @@
     "variable-name": [true, "ban-keywords", "check-format", "allow-leading-underscore", "allow-trailing-underscore", "allow-pascal-case"],
     "member-access": false,
     "semicolon": [true, "always"],
-    "trailing-comma": false
+    "trailing-comma": false,
+    "prefer-const": false,
+    "max-classes-per-file": false
   },
   "jsRules": {
   },

@@ -12,6 +12,7 @@ module.exports = function(env = {}) {
             __dirname: false,
             __filename: false,
         },
+        cache: true,
         entry: {
             app: "./app.tsx",
         },
