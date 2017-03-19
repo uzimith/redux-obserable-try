@@ -3,145 +3,187 @@ import * as ReactDOM from "react-dom";
 import "rxjs";
 import { Observable } from "rxjs/Rx";
 import { ErrorObservable } from "rxjs/observable/ErrorObservable";
-import { Epic, combineEpics, createEpicMiddleware } from "redux-observable";
+import { Epic, combineEpics, createEpicMiddleware, ActionsObservable } from "redux-observable";
 import { combineReducers, createStore, applyMiddleware, compose, Dispatch } from "redux";
 import { Provider, connect } from "react-redux";
-import { createAction } from "redux-actions";
+import actionCreatorFactory, { isType, Action, ActionCreator } from "typescript-fsa";
 import createHistory from "history/createHashHistory";
-import { Route } from "react-router";
+import { Route, Router } from "react-router";
 import { Link } from "react-router-dom";
-import { ConnectedRouter, routerReducer, routerMiddleware, push } from "react-router-redux";
+import { ConnectedRouter, routerReducer, RouterState, routerMiddleware, push } from "react-router-redux";
+import returnof from "returnof";
 
 // my API
+export class ResponseError extends Error {
+    public response;
+    constructor(response: Response) {
+        super(response.statusText);
+        this.response = response;
+    }
+}
+
 function checkStatus(response: Response): Observable<Response> | ErrorObservable {
     if (response.status >= 200 && response.status < 300) {
         return Observable.from(response.json());
     } else {
-        const error = new Error(response.statusText);
-        return Observable.throw(error);
+        return Observable.throw(new ResponseError(response));
     }
 }
 
-function parseJSON(response: Response): Observable<{}> {
-    return Observable.from(response.json());
-}
-
-export function API(request: Request | string): Observable<{}> {
+export function API(request: Request | string): Observable<any> {
     return Observable.fromPromise(fetch(request))
         .mergeMap(checkStatus)
         ;
 }
 
-// Constants
-const PING = "PING";
-const PONG = "PONG";
-const FETCH_USER = "FETCH_USER";
-const FETCH_USER_FULFILLED = "FETCH_USER_FULFILLED";
-const ERROR_FETCH_USER = "ERROR_FETCH_USER";
-const INCREMENT = "INCREMENT";
-const INCREMENT_IF_ODD = "INCREMENT_IF_ODD";
+// Interface
+interface User { // GitHub API User
+    login: string; // username
+    id: number;
+    avatar_url: string;
+    gravatar_id: string;
+    url: string;
+    html_url: string;
+    followers_url: string;
+    following_url: string;
+    gists_url: string;
+    starred_url: string;
+    subscriptions_url: string;
+    organizations_url: string;
+    repos_url: string;
+    events_url: string;
+    received_events_url: string;
+    type: string;
+    site_admin: boolean;
+    name: string;
+    company: string;
+    blog: string;
+    location: string;
+    email: string;
+    hireable: boolean;
+    bio?: any;
+    public_repos: number;
+    public_gists: number;
+    followers: number;
+    following: number;
+    created_at: Date | string;
+    updated_at: Date | string;
+}
 
 // Actions
-const ping = () => ({ type: PING });
-const pong = () => ({ type: PONG });
-const fetchUser = (username: string) => ({ type: FETCH_USER, payload: username });
-const fetchUserFulfilled = payload => ({ type: FETCH_USER_FULFILLED, payload });
-const errorFetchUser = error => ({ type: ERROR_FETCH_USER, error });
-const increment = () => ({ type: INCREMENT });
-const incrementIfOdd = () => ({ type: INCREMENT_IF_ODD });
+const actionCreator = actionCreatorFactory();
+const ping = actionCreator("PING");
+const pong = actionCreator("PONG");
 
-// Epics
-const pingEpic: Epic<any, any> = action$ =>
-    action$.ofType(PING)
-        .delay(1000)
-        .mapTo(pong())
-    ;
-
-const fetchUserEpic = action$ =>
-    action$.ofType(FETCH_USER)
-        .mergeMap(action =>
-            // ajax.getJSON(`https://api.github.com/users/${action.payload}`)
-            // rxFetch(`https://api.github.com/users/${action.payload}`)
-            //   .json()
-            API(`https://api.github.com/users/${action.payload}`)
-                .map(response => fetchUserFulfilled(response))
-                .catch(error => Observable.of(errorFetchUser(error)))
-        )
-    ;
-
-const incrementIfOddEpic = (action$, store) =>
-    action$.ofType(INCREMENT_IF_ODD)
-        .filter(() => store.getState().counter % 2 === 1)
-        .mapTo(increment())
-    ;
-
-const urls = ["/", "/counter", "/user/uzimith", "/user/facebook"];
-
-const transitionEpic = () =>
-    Observable.interval(3000)
-        .map(i => push(urls[i % urls.length]))
-        .take(0)
-    ;
-
-const epic = combineEpics(
-    pingEpic,
-    fetchUserEpic,
-    incrementIfOddEpic,
-    transitionEpic,
-);
+const fetchUser = actionCreator.async<string, User, ResponseError>("FETCH_USER");
+const increment = actionCreator("INCREMENT");
+const incrementIfOdd = actionCreator("INCREMENT_IF_ODD");
 
 // Reducers
-const pingReducer = (state = { isPinging: false }, action) => {
+interface PingState {
+    isPinging: boolean;
+}
+const pingReducer = (state: PingState = { isPinging: false }, action: Action<any>): PingState => {
     switch (action.type) {
-        case PING:
+        case ping.type:
             return { isPinging: true };
-        case PONG:
+        case pong.type:
             return { isPinging: false };
         default:
             return state;
     }
 };
 
-const usersReducer = (state = {}, action) => {
-    switch (action.type) {
-        case FETCH_USER:
-            return {
-                ...state,
-                _currentUser: action.payload,
-                _error: null,
-            };
-        case FETCH_USER_FULFILLED:
-            return {
-                ...state,
-                [action.payload.login]: action.payload, // `login` is the username
-                _error: null,
-            };
-        case ERROR_FETCH_USER:
-            return {
-                ...state,
-                _error: action.error,
-            };
-        default:
-            return state;
+interface UsersState {
+    _currentUser?: string;
+    _error?: ResponseError;
+    [username: string]: User | any;
+}
+
+const usersReducer = (state: UsersState = {}, action: Action<any>): UsersState => {
+    if (isType(action, fetchUser.started)) {
+        return {
+            ...state,
+            _currentUser: action.payload,
+            _error: null,
+        };
     }
+    if (isType(action, fetchUser.done)) {
+        return {
+            ...state,
+            [action.payload.result.login]: action.payload.result,
+            _error: null,
+        };
+    }
+    if (isType(action, fetchUser.failed)) {
+        return {
+            ...state,
+            _error: action.payload.error
+        };
+    }
+    return state;
 };
 
-const counterReducer = (state = 0, action) => {
-    switch (action.type) {
-        case INCREMENT:
-            return state + 1;
+type CounterState = number;
 
-        default:
-            return state;
+const counterReducer = (state: CounterState = 0, action: Action<any>): CounterState => {
+    if (isType(action, increment)) {
+        return state + 1;
     }
+    return state;
 };
 
-const reducer = combineReducers({
+interface State {
+    ping: PingState;
+    users: UsersState;
+    counter: CounterState;
+    router: RouterState;
+};
+
+const reducer = combineReducers<State>({
     ping: pingReducer,
     users: usersReducer,
     counter: counterReducer,
     router: routerReducer,
 });
+
+// Epics
+const PingValue = returnof(ping);
+const pingEpic: Epic<typeof PingValue, PingState> = action$ =>
+    action$.ofType(ping.type)
+        .delay(1000)
+        .mapTo(pong())
+    ;
+
+const FetchUserValue = returnof(fetchUser.started);
+const fetchUserEpic: Epic<typeof FetchUserValue, UsersState> = action$ =>
+    action$.ofType(fetchUser.started.type)
+        .mergeMap(action => API(`https://api.github.com/users/${action.payload}`)
+            .map(response => fetchUser.done({ params: action.payload, result: response }))
+            .catch(error => Observable.of(fetchUser.failed({ params: action.payload, error })))
+        )
+    ;
+
+const IncrementValue = returnof(increment);
+const incrementIfOddEpic: Epic<typeof IncrementValue, CounterState> = (action$, store) =>
+    action$.ofType(incrementIfOdd.type)
+        .filter(() => store.getState() % 2 === 1)
+        .mapTo(increment())
+    ;
+
+const urls = ["/", "/counter", "/user/uzimith", "/user/facebook"];
+
+const transitionEpic = () =>
+    Observable.interval(10000)
+        .map(i => push(urls[i % urls.length]))
+    ;
+
+let epic = combineEpics<Epic<Action<any>, any>>(
+    pingEpic,
+    fetchUserEpic,
+    incrementIfOddEpic,
+    transitionEpic,
+);
 
 // Components
 interface PingProps { isPinging?: boolean; };
@@ -149,9 +191,10 @@ const PingText = (props: PingProps) => {
     return <h1>This is {props.isPinging ? "" : "not "} pinging</h1>;
 };
 
-interface UserProps { user: {}; };
+interface UserProps { user: User | {}; };
 class UserCode extends React.Component<UserProps, {}> {
-    static defaultProps: Partial<UserProps> = {
+
+    static defaultProps: UserProps = {
         user: {}
     };
 
@@ -160,16 +203,21 @@ class UserCode extends React.Component<UserProps, {}> {
     }
 }
 
-class InputForm extends React.Component<{
+interface InputFormProps {
     input?: string;
     error?: Error;
-    sendInput: (input: string) => void;
-}, { value: string }
-    > {
-    constructor(props) {
-        super(props);
-        this.state = { value: props.input || "redux-observable" };
-    }
+    sendInput: (input: string) => any;
+}
+
+interface InputFormState {
+    value: string;
+}
+
+class InputForm extends React.Component<InputFormProps, InputFormState> {
+
+    state: InputFormState = {
+        value: this.props.input || "redux-observable"
+    };
 
     componentWillReceiveProps(nextProps) {
         if (nextProps.input !== this.props.input) {
@@ -177,11 +225,11 @@ class InputForm extends React.Component<{
         }
     }
 
-    handleChange = event => {
+    handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         this.setState({ value: event.target.value });
     }
 
-    handleSubmit = event => {
+    handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
         this.props.sendInput(this.state.value);
     }
@@ -196,34 +244,42 @@ class InputForm extends React.Component<{
     }
 }
 
-const Button = ({ text, handleClick }) => <button onClick={handleClick}>{text}</button>;
+interface ButtonProps {
+    text: string;
+    handleClick: (event?: React.MouseEvent<HTMLButtonElement>) => any;
+}
+const Button = ({ text, handleClick }: ButtonProps) => <button onClick={handleClick}>{text}</button>;
 
 // Containers
 
-const PingView = connect(
-    (state) => ({ isPinging: state.ping.isPinging }),
+const PingView = connect<PingProps, void>(
+    (state: State) => ({ isPinging: state.ping.isPinging }),
 )(PingText);
 
-const PingButton = connect(
+const PingButton = connect<ButtonProps, void>(
     () => ({ text: "ping" }),
     (dispatch, props) => ({ handleClick: () => dispatch(ping()) })
 )(Button);
 
-const UserView = connect(
-    (state, props) => ({ user: state.users[state.users._currentUser] }),
+const UserView = connect<UserProps, void>(
+    (state: State, props) => ({ user: state.users[state.users._currentUser] }),
 )(UserCode);
 
-const FetchUserForm = connect(
-    (state, props) => ({ input: props.username, error: state.users._error }),
-    (dispatch, props) => ({ sendInput: (username: string) => dispatch(fetchUser(username)) })
+interface FetchUserFormProps {
+    username: string;
+}
+
+const FetchUserForm = connect<InputFormProps, FetchUserFormProps>(
+    (state: State, props) => ({ input: props.username, error: state.users._error }),
+    (dispatch, props) => ({ sendInput: (username: string) => dispatch(fetchUser.started(username)) })
 )(InputForm);
 
-const IncrementButton = connect(
+const IncrementButton = connect<ButtonProps, void>(
     () => ({ text: "Increment" }),
     (dispatch, props) => ({ handleClick: () => dispatch(increment()) })
 )(Button);
 
-const IncrementIfOddButton = connect(
+const IncrementIfOddButton = connect<ButtonProps, void>(
     () => ({ text: "IncrementIfOdd" }),
     (dispatch, props) => ({ handleClick: () => dispatch(incrementIfOdd()) })
 )(Button);
